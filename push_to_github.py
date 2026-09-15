@@ -196,17 +196,31 @@ def run_git(
     token: Optional[str] = None,
     check: bool = True,
     capture: bool = True,
+    disable_cred_helper: bool = False,
 ) -> subprocess.CompletedProcess:
-    """Run ``git`` with optional bearer-token auth via ``http.extraheader``.
+    """Run ``git`` with optional bearer-token auth.
 
-    The token is injected only for this one invocation; it never touches
-    ``.git/config``.
+    Two mechanisms are combined for maximum compatibility:
+
+    * ``credential.helper=`` (empty) — disables Git Credential Manager so a
+      stale entry in the Windows Credential Manager cannot override our auth.
+    * ``http.<url>.extraheader`` — sends ``Authorization: Bearer <token>``
+      for hosts that accept header-only auth.
+
+    For hosts that still require a basic-auth username (GitHub does), the
+    caller should embed the token in the remote URL instead — see
+    :func:`git_push`.
+
+    The token is never written to ``.git/config``.
     """
     cmd = ["git"]
+    if disable_cred_helper:
+        cmd += ["-c", "credential.helper="]
     if token:
-        # Header value contains the token; keep it out of any printed output.
         cmd += ["-c", f"http.https://github.com/.extraheader=Authorization: Bearer {token}"]
     cmd += args
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"  # never block on interactive auth
     result = subprocess.run(
         cmd,
         cwd=str(cwd),
@@ -214,6 +228,7 @@ def run_git(
         text=True,
         encoding="utf-8",
         errors="replace",
+        env=env,
     )
     if capture:
         # Scrub token from any captured output before it can be logged.
@@ -329,11 +344,42 @@ def git_commit(cwd: Path, message: str) -> bool:
     return True
 
 
-def git_push(cwd: Path, token: str, branch: str, remote: str = "origin", force: bool = False) -> None:
-    args = ["push", "-u", remote, branch]
-    if force:
-        args.insert(1, "--force")
-    run_git(args, cwd, token=token)
+def git_push(
+    cwd: Path,
+    token: str,
+    branch: str,
+    owner: str,
+    repo: str,
+    remote: str = "origin",
+    force: bool = False,
+) -> None:
+    """Push using a token-embedded remote URL, then restore the clean URL.
+
+    Why not just ``http.extraheader``?  Because GitHub still requires a
+    basic-auth username even when an ``Authorization`` header is present,
+    and Windows Git Credential Manager will happily supply a stale one
+    from the Credential Manager, causing ``invalid credentials`` errors.
+
+    Strategy (standard CI/CD pattern):
+      1. Temporarily set ``origin`` to ``https://x-access-token:TOKEN@github.com/OWNER/REPO.git``
+      2. Push with ``credential.helper=`` disabled so nothing overrides our URL auth
+      3. **Always** restore ``origin`` to the clean URL — even on failure
+    """
+    clean_url = f"https://github.com/{owner}/{repo}.git"
+    token_url = f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
+    try:
+        git_remote_set(cwd, token_url, remote)
+        args = ["push", "-u", remote, branch]
+        if force:
+            args.insert(1, "--force")
+        run_git(args, cwd, token=token, disable_cred_helper=True)
+    finally:
+        # Restore clean URL no matter what happened above.
+        try:
+            git_remote_set(cwd, clean_url, remote)
+        except Exception as restore_err:  # pragma: no cover
+            warn(f"failed to restore clean remote URL: {restore_err}")
+            warn(f"run manually: git remote set-url {remote} {clean_url}")
 
 
 # ---------------------------------------------------------------------------
@@ -489,9 +535,10 @@ def main() -> int:
     if args.dry_run:
         info(f"[dry-run] would: git push -u origin {args.branch}"
              + (" --force" if args.force else ""))
+        info("[dry-run] auth: token temporarily embedded in remote URL, restored after push")
     else:
         try:
-            git_push(cwd, token, args.branch, force=args.force)
+            git_push(cwd, token, args.branch, owner, args.repo, force=args.force)
             ok(f"pushed to {remote_url} (branch={args.branch})")
         except RuntimeError as e:
             err(f"push failed: {e}")
@@ -500,6 +547,8 @@ def main() -> int:
                 "or re-run with --force (destructive).")
             err("  * If the token lacks repo scope, regenerate it with `repo` "
                 "(classic) or `Contents: Read/Write` (fine-grained).")
+            err("  * Stale Windows credentials can also cause this — run: "
+                "cmdkey /list | findstr github")
             return 6
 
     step("Done")

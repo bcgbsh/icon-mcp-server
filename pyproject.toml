@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "icon-mcp-server"
+version = "0.1.0"
+description = "An MCP server that generates software/app icons (PNG / ICO / ICNS) locally with Pillow."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "icon-mcp-server contributors" }]
+keywords = ["mcp", "icon", "generator", "pillow", "favicon", "appicon", "ai-tools"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "mcp>=1.2.0",
+    "Pillow>=10.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.2",
+    "twine>=5.0",
+]
+
+[project.scripts]
+icon-mcp-server = "icon_mcp_server.server:main"
+
+[project.urls]
+Homepage = "https://github.com/bcgbsh/icon-mcp-server"
+Repository = "https://github.com/bcgbsh/icon-mcp-server"
+Issues = "https://github.com/bcgbsh/icon-mcp-server/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/icon_mcp_server"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/icon_mcp_server",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+]

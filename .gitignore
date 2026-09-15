@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+.Python
+pip-wheel-metadata/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Tooling
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Self-test output
+_icon_self_test/
+
+# Credentials (NEVER commit)
+.pypirc
+*.pypirc
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Added by push_to_github.py — never commit credentials
+*.token
+*credentials*
+*.pem
+*.key

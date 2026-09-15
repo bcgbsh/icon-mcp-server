@@ -197,26 +197,29 @@ def run_git(
     check: bool = True,
     capture: bool = True,
     disable_cred_helper: bool = False,
+    use_bearer_header: bool = False,
 ) -> subprocess.CompletedProcess:
-    """Run ``git`` with optional bearer-token auth.
+    """Run ``git``, optionally scrubbing ``token`` from captured output.
 
-    Two mechanisms are combined for maximum compatibility:
-
-    * ``credential.helper=`` (empty) — disables Git Credential Manager so a
-      stale entry in the Windows Credential Manager cannot override our auth.
-    * ``http.<url>.extraheader`` — sends ``Authorization: Bearer <token>``
-      for hosts that accept header-only auth.
-
-    For hosts that still require a basic-auth username (GitHub does), the
-    caller should embed the token in the remote URL instead — see
-    :func:`git_push`.
-
-    The token is never written to ``.git/config``.
+    Parameters
+    ----------
+    token : str, optional
+        Used **only** to redact occurrences from captured stdout/stderr so
+        the token cannot leak into logs. It is NOT sent to git unless
+        ``use_bearer_header=True``.
+    disable_cred_helper : bool
+        Inject ``-c credential.helper=`` so Git Credential Manager cannot
+        supply a stale credential from the Windows Credential Manager.
+    use_bearer_header : bool
+        Inject ``-c http.https://github.com/.extraheader=Authorization: Bearer <token>``.
+        **Do NOT combine with a token-embedded remote URL** — GitHub rejects
+        requests carrying two ``Authorization`` headers with
+        ``invalid credentials``.
     """
     cmd = ["git"]
     if disable_cred_helper:
         cmd += ["-c", "credential.helper="]
-    if token:
+    if use_bearer_header and token:
         cmd += ["-c", f"http.https://github.com/.extraheader=Authorization: Bearer {token}"]
     cmd += args
     env = os.environ.copy()
@@ -230,10 +233,10 @@ def run_git(
         errors="replace",
         env=env,
     )
-    if capture:
+    if capture and token:
         # Scrub token from any captured output before it can be logged.
-        result.stdout = mask(result.stdout or "", token or "")
-        result.stderr = mask(result.stderr or "", token or "")
+        result.stdout = mask(result.stdout or "", token)
+        result.stderr = mask(result.stderr or "", token)
     if check and result.returncode != 0:
         raise RuntimeError(
             f"git {' '.join(args)} failed "
@@ -372,7 +375,10 @@ def git_push(
         args = ["push", "-u", remote, branch]
         if force:
             args.insert(1, "--force")
-        run_git(args, cwd, token=token, disable_cred_helper=True)
+        # IMPORTANT: use_bearer_header=False — the token is already in the URL.
+        # Sending both would give the request two Authorization headers and
+        # GitHub would reject it with `invalid credentials`.
+        run_git(args, cwd, token=token, disable_cred_helper=True, use_bearer_header=False)
     finally:
         # Restore clean URL no matter what happened above.
         try:
